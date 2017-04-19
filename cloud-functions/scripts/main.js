@@ -32,6 +32,7 @@ function FriendlyChat() {
   this.signInButton = document.getElementById('sign-in');
   this.signOutButton = document.getElementById('sign-out');
   this.signInSnackbar = document.getElementById('must-signin-snackbar');
+  this.taskList = document.getElementById('tasks');
 
   // Saves message on form submit.
   this.messageForm.addEventListener('submit', this.saveMessage.bind(this));
@@ -82,6 +83,14 @@ FriendlyChat.prototype.loadMessages = function() {
 // Saves a new message on the Firebase DB.
 FriendlyChat.prototype.saveMessage = function(e) {
   e.preventDefault();
+
+    firebase.database.ref('tasks').set({
+        name: currentUser.displayName,
+        text: this.messageInput.value.replace(/TODO/g,""),
+        photoUrl: currentUser.photoURL || '/images/profile_placeholder.png'
+    }).catch(function(error) {
+        console.error('Error writing new task to Firebase Database', error);
+    });
   // Check that the user entered a message and is signed in.
   if (this.messageInput.value && this.checkSignedInWithMessage()) {
     var currentUser = this.auth.currentUser;
@@ -98,6 +107,7 @@ FriendlyChat.prototype.saveMessage = function(e) {
       console.error('Error writing new message to Firebase Database', error);
     });
   }
+
 };
 
 // Sets the URL of the given img element with the URL of the image stored in Firebase Storage.
@@ -309,6 +319,73 @@ FriendlyChat.prototype.toggleButton = function() {
   } else {
     this.submitButton.setAttribute('disabled', 'true');
   }
+};
+
+// Loads tasks history and listen for upcoming ones
+FriendlyChat.prototype.Loadtasks = function() {
+    // Reference to the /tasks/ database path.
+    this.tasksRef = this.database.ref('tasks');
+    // Make sure we remove all previous listeners.
+    this.tasksRef.off();
+
+    // Loads the last 20 tasks and listen for new ones.
+    var setTasks = function(data) {
+        var val = data.val();
+        this.displayTasks(data.key, val.name, val.text, val.photoUrl, val.imageUrl);
+    }.bind(this);
+    this.tasksRef.limitToLast(20).on('child_added', setTasks);
+    this.tasksRef.limitToLast(20).on('child_changed', setTasks);
+};
+
+// Save a new task on the Firebase DB
+FriendlyChat.prototype.SaveTasks = function() {
+    if (this.messageInput.value.match(/TODO/) && this.checkSignedInWithMessage()) {
+        var currentUser = this.auth.currentUser;
+        // Add a new task entry to the Firebase Database.
+        this.tasksRef.push({
+            name: currentUser.displayName,
+            text: this.messageInput.value.replace(/TODO/g,""),
+            photoUrl: currentUser.photoURL || '/images/profile_placeholder.png'
+        }).catch(function(error) {
+            console.error('Error writing new task to Firebase Database', error);
+        });
+    }
+};
+
+
+// Displays a Task cards in the UI.
+FriendlyChat.prototype.displayTasks = function(key, name, text, picUrl, imageUri) {
+    var div = document.getElementById(key);
+    // If an element for that tasks does not exists yet we create it.
+    if (!div) {
+        var container = document.createElement('div');
+        container.innerHTML = FriendlyChat.MESSAGE_TEMPLATE;
+        div = container.firstChild;
+        div.setAttribute('id', key);
+        this.taskList.appendChild(div);
+    }
+    if (picUrl) {
+        div.querySelector('.pic').style.backgroundImage = 'url(' + picUrl + ')';
+    }
+    div.querySelector('.name').textContent = name;
+    var taskElement = div.querySelector('.task');
+    if (text) { // If the message is text.
+        taskElement.textContent = text;
+        // Replace all line breaks by <br>.
+        taskElement.innerHTML = taskElement.innerHTML.replace(/\n/g, '<br>');
+    } else if (imageUri) { // If the message is an image.
+        var image = document.createElement('img');
+        image.addEventListener('load', function() {
+            this.taskList.scrollTop = this.taskList.scrollHeight;
+        }.bind(this));
+        this.setImageUrl(imageUri, image);
+        taskElement.innerHTML = '';
+        taskElement.appendChild(image);
+    }
+    // Show the card fading-in and scroll to view the new message.
+    setTimeout(function() {div.classList.add('visible')}, 1);
+    this.taskList.scrollTop = this.taskList.scrollHeight;
+    this.messageInput.focus();
 };
 
 // Checks that the Firebase SDK has been correctly setup and configured.
